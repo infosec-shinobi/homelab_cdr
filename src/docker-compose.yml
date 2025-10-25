@@ -1,0 +1,216 @@
+version: "3.9"
+
+networks:
+  # Public edge network (only for UIs that must be reachable locally).
+  # Ports are still bound to 127.0.0.1 to avoid exposure on cloud VMs.
+  cdr_edge:
+    driver: bridge
+    name: cdr_edge
+
+  # Internal backplane for databases, scanners, SIEM, metrics.
+  # Not reachable from outside the Docker host.
+  cdr_backend:
+    driver: bridge
+    name: cdr_backend
+    internal: true
+
+  # Automation network shared by Tracecat and n8n for webhook calls.
+  # Internal-only; each can use service DNS names (tracecat, n8n).
+  cdr_automation:
+    driver: bridge
+    name: cdr_automation
+    internal: true
+
+volumes:
+  wazuh_data:
+  wazuh_indexer_data:
+  prometheus_data:
+  grafana_data:
+  tracecat_data:
+  n8n_data:
+  cloudquery_output:
+  prowler_output:
+
+services:
+  # --------------------
+  # WAZUH (SIEM / XDR)
+  # --------------------
+  wazuh-manager:
+    image: wazuh/wazuh:4.9.1
+    container_name: wazuh-manager
+    restart: unless-stopped
+    environment:
+      - WAZUH_CLUSTER=disabled
+      - INDEXER_URL=https://wazuh-indexer:9200
+      - FILEBEAT_URL=https://wazuh-filebeat:5044
+    volumes:
+      - wazuh_data:/var/ossec/data
+      - ./wazuh/config/wazuh.conf:/var/ossec/etc/ossec.conf:ro
+    networks:
+      - cdr_backend
+
+  wazuh-indexer:
+    image: wazuh/wazuh-indexer:4.9.1
+    container_name: wazuh-indexer
+    restart: unless-stopped
+    environment:
+      - bootstrap.memory_lock=true
+      - discovery.type=single-node
+      # Example JVM tuning (uncomment & adjust to host RAM)
+      # - ES_JAVA_OPTS=-Xms4g -Xmx4g
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+    volumes:
+      - wazuh_indexer_data:/usr/share/wazuh-indexer/data
+    networks:
+      - cdr_backend
+    # Optional: expose to localhost only (generally not needed)
+    # ports:
+    #   - "127.0.0.1:9200:9200"
+
+  wazuh-dashboard:
+    image: wazuh/wazuh-dashboard:4.9.1
+    container_name: wazuh-dashboard
+    restart: unless-stopped
+    environment:
+      - WAZUH_API_URL=https://wazuh-manager
+    depends_on:
+      - wazuh-manager
+    networks:
+      - cdr_backend
+      - cdr_edge
+    # Bind to loopback so it is not internet-exposed on cloud VMs
+    ports:
+      - "127.0.0.1:5601:5601"
+
+  # --------------------
+  # CLOUDQUERY (asset inventory)
+  # --------------------
+  cloudquery:
+    image: cloudquery/cloudquery:latest
+    container_name: cloudquery
+    restart: unless-stopped
+    command: >
+      sync aws --config /config/config.yml
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+    volumes:
+      - ./cloudquery/config:/config
+      - cloudquery_output:/output
+    networks:
+      - cdr_backend
+
+  # --------------------
+  # PROWLER (official cloud security & compliance scanner, scheduled)
+  # --------------------
+  prowler:
+    image: prowlercloud/prowler:latest
+    container_name: prowler
+    restart: unless-stopped
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+    volumes:
+      - prowler_output:/output
+    command: >
+      sh -c 'while true; do
+        echo "🕒 Running scheduled Prowler scan at $(date)";
+        OUTPUT="/output/prowler-$(date +%Y%m%d-%H%M%S).json";
+        prowler aws --benchmark cis_v1.4 --format json --output-filename "$OUTPUT";
+        ln -sf "$OUTPUT" /output/latest.json;
+        echo "✅ Scan complete. Sleeping for 2 hours...";
+        sleep 7200;
+      done'
+    networks:
+      - cdr_backend
+
+
+  # --------------------
+  # PROMETHEUS (metrics)
+  # --------------------
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - cdr_backend
+      - cdr_edge
+    ports:
+      - "127.0.0.1:9090:9090"
+
+  # --------------------
+  # GRAFANA (dashboards)
+  # --------------------
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=grafana-simple-json-datasource
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - prowler_output:/var/lib/grafana/prowler_output:ro
+    depends_on:
+      - prometheus
+    networks:
+      - cdr_backend
+      - cdr_edge
+    ports:
+      - "127.0.0.1:3000:3000"
+
+  # --------------------
+  # TRACECAT (SOAR / cloud response)
+  # --------------------
+  tracecat:
+    image: ghcr.io/tracecathq/tracecat:latest
+    container_name: tracecat
+    restart: unless-stopped
+    environment:
+      - TRACECAT_API_KEY=${TRACECAT_API_KEY:-changeme}
+      # Add any other required Tracecat env here
+    volumes:
+      - tracecat_data:/data
+    depends_on:
+      - wazuh-manager
+    networks:
+      - cdr_backend
+      - cdr_automation
+      - cdr_edge
+    # Bind to loopback; reachable via SSH tunnel or reverse proxy
+    ports:
+      - "127.0.0.1:8080:8080"
+
+  # --------------------
+  # n8n (general automation / integrations)
+  # --------------------
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=admin
+      - N8N_ENCRYPTION_KEY=changeme
+      - N8N_HOST=n8n
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - EXECUTIONS_PROCESS=main
+      # Optional: set WEBHOOK_URL if you terminate TLS behind a proxy
+      # - WEBHOOK_URL=https://n8n.example.com/
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - cdr_automation
+      - cdr_edge
+    ports:
+      - "127.0.0.1:5678:5678"

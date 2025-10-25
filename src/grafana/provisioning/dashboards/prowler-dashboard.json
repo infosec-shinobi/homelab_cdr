@@ -1,0 +1,86 @@
+{
+  "id": null,
+  "uid": "prowler-cdr",
+  "title": "Prowler Cloud Security Findings",
+  "tags": ["prowler", "cdr", "compliance", "aws"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "5m",
+  "panels": [
+    {
+      "type": "table",
+      "title": "Recent Prowler Findings",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 10 },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Severity", "desc": true }]
+      },
+      "targets": [
+        {
+          "format": "table",
+          "type": "table",
+          "datasource": { "type": "grafana-simple-json-datasource", "uid": "prowler-json" },
+          "url": "/prowler/output/latest.json"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "align": "auto",
+          "inspect": false
+        }
+      }
+    },
+    {
+      "type": "piechart",
+      "title": "Findings by Severity",
+      "gridPos": { "x": 0, "y": 10, "w": 12, "h": 10 },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "right" },
+        "reduceOptions": { "calcs": ["count"], "fields": "" },
+        "pieType": "donut"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-simple-json-datasource", "uid": "prowler-json" },
+          "url": "/prowler/output/latest.json"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Total Findings",
+      "gridPos": { "x": 12, "y": 10, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "refId": "B",
+          "datasource": { "type": "grafana-simple-json-datasource", "uid": "prowler-json" },
+          "url": "/prowler/output/latest.json"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["count"] },
+        "orientation": "horizontal",
+        "colorMode": "value"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "High Severity",
+      "gridPos": { "x": 18, "y": 10, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "refId": "C",
+          "datasource": { "type": "grafana-simple-json-datasource", "uid": "prowler-json" },
+          "url": "/prowler/output/latest.json?severity=high"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["count"] }
+      }
+    }
+  ]
+}
