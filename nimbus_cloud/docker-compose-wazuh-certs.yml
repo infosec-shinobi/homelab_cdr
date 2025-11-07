@@ -1,0 +1,10 @@
+services:
+  wazuh-cert-generator:
+    image: wazuh/wazuh-certs-generator:0.0.3
+    hostname: wazuh-certs-generator
+    environment:
+      - CERT_TOOL_VERSION=4.14
+    volumes:
+      - ./data/wazuh/cert-generator/log.log:/wazuh-certificates-tool.log:rw
+      - ./config/wazuh/certs/:/certificates/
+      - ./config/wazuh/certs.yml:/config/certs.yml

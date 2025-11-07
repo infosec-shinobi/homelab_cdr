@@ -1,0 +1,643 @@
+# ============================================================
+# NimbusGuard – Homelab Cloud Detection & Response Stack
+# ------------------------------------------------------------
+# Services:
+#  - Wazuh (manager, indexer, dashboard) – 4.9.2, TLS disabled
+#  - CloudQuery – pulls cloud inventory
+#  - Prometheus + Grafana – metrics + dashboards (pre-provisioned)
+#  - Tracecat – automation / CDR flows (local storage to avoid AWS creds)
+#  - n8n – extra orchestration / webhooks
+#  - Prowler App – UI + API + Worker + Scheduler + Postgres + Cache
+#
+# Ports:
+#  - Wazuh Dashboard: https://localhost:5601 (TLS OFF here)
+#  - Grafana:         http://localhost:3000
+#  - n8n:             http://localhost:5678
+#  - Tracecat:        http://localhost:8080
+#  - Prowler UI:      http://localhost:8082
+#  - Prometheus:      http://localhost:9090
+#
+# Networks:
+#  - nimbusguard_front – user-facing services
+#  - nimbusguard_back  – internal service comms
+#
+# Folders (repo layout expected):
+#  nimbusguard/
+#   ├─ docker-compose.yml
+#   ├─ config/
+#   │   ├─ wazuh/
+#   │   ├─ cloudquery/
+#   │   │    └─ config.yml
+#   │   ├─ prometheus.yml
+#   │   ├─ grafana/
+#   │   │    └─ provisioning/datasources/datasource.yml
+#   │   ├─ tracecat.env
+#   │   └─ prowler/.env
+#   └─ data/
+#       ├─ wazuh/
+#       ├─ cloudquery/
+#       ├─ prometheus/
+#       ├─ grafana/
+#       ├─ tracecat/
+#       └─ prowler/
+#
+# NOTE (Windows): fix ~/.aws mount below if Docker Desktop can’t map it.
+# ============================================================
+
+services:
+  # ----------------------------------------------------------
+  # WAZUH STACK (lab mode: security plugin disabled)
+  # ----------------------------------------------------------
+  
+  #https://documentation.wazuh.com/current/deployment-options/docker/wazuh-container.html#single-node-stack
+
+  wazuh.indexer:
+    image: wazuh/wazuh-indexer:4.13.0
+    container_name: wazuh.indexer
+    restart: unless-stopped
+    user: "1000:1000"
+    ports:
+      - "9200:9200"
+    environment:
+      - "OPENSEARCH_JAVA_OPTS=-Xms1g -Xmx1g"
+      - "DISABLE_INSTALL_DEMO_CONFIG=true"
+      - "DISABLE_SECURITY_PLUGIN=true"
+      - "OPENSEARCH_PATH_CONF=/usr/share/wazuh-indexer/config"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - ./data/wazuh/indexer:/var/lib/wazuh-indexer
+      #- ./config/wazuh/certs/wazuh.indexer.pem:/usr/share/wazuh-indexer/certs/wazuh.indexer.pem:ro
+      #- ./config/wazuh/certs/wazuh.indexer.key:/usr/share/wazuh-indexer/certs/wazuh.indexer.key:ro
+      #- ./config/wazuh/certs/root-ca.pem:/usr/share/wazuh-indexer/certs/root-ca.pem:ro
+      - ./config/wazuh/certs/wazuh.indexer.pem:/usr/share/wazuh-indexer/config/certs/wazuh.indexer.pem:ro
+      - ./config/wazuh/certs/wazuh.indexer.key:/usr/share/wazuh-indexer/config/certs/wazuh.indexer.key:ro
+      - ./config/wazuh/certs/root-ca.pem:/usr/share/wazuh-indexer/config/certs/root-ca.pem:ro
+      - ./config/wazuh/indexer/wazuh.indexer.yml:/usr/share/wazuh-indexer/config/opensearch.yml:ro
+      - ./config/wazuh/indexer/internal_users.yml:/usr/share/wazuh-indexer/config/opensearch-security/internal_users.yml:ro
+    networks:
+      - nimbusguard_back
+
+  wazuh.manager:
+    image: wazuh/wazuh-manager:4.13.0
+    hostname: wazuh.manager
+    restart: always
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 655360
+        hard: 655360
+    ports:
+      - "15140:1514"
+      - "15150:1515"
+      - "15140:514/udp"
+      - "25000:55000"
+    environment:
+      - INDEXER_URL=https://wazuh.indexer:9200
+      - INDEXER_USERNAME=admin
+      - INDEXER_PASSWORD=SecretPassword
+      - FILEBEAT_SSL_VERIFICATION_MODE=full
+      - SSL_CERTIFICATE_AUTHORITIES=/etc/ssl/root-ca.pem
+      - SSL_CERTIFICATE=/etc/ssl/filebeat.pem
+      - SSL_KEY=/etc/ssl/filebeat.key
+      - API_USERNAME=wazuh-api
+      - API_PASSWORD=Pickles123!
+    volumes:
+      #- ./data/wazuh/manager/ossec:/var/ossec/
+      #- wazuh_api_configuration:/var/ossec/api/configuration
+      #- wazuh_etc:/var/ossec/etc
+      #- wazuh_logs:/var/ossec/logs
+      #- wazuh_queue:/var/ossec/queue
+      #- wazuh_var_multigroups:/var/ossec/var/multigroups
+      #- wazuh_active_response:/var/ossec/active-response/bin
+      #- wazuh_wodles:/var/ossec/wodles
+      #- ./data/wazuh/manager/filebeat/etc:/etc/filebeat
+      #- ./data/wazuh/manager/filebeat/var:/var/lib/filebeat
+      - ./config/wazuh/wazuh/certs/root-ca.pem:/etc/ssl/root-ca.pem
+      - ./config/wazuh/wazuh/certs/wazuh.manager.pem:/etc/ssl/filebeat.pem
+      - ./config/wazuh/wazuh/certs/wazuh.manager-key.pem:/etc/ssl/filebeat.key
+      - ./config/wazuh/manager/manager.conf:/wazuh-config-mount/etc/ossec.conf
+    networks:
+      - nimbusguard_back
+
+  wazuh.dashboard:
+    image: wazuh/wazuh-dashboard:4.13.0
+    hostname: wazuh.dashboard
+    restart: always
+    ports:
+      - 5601:5601
+    environment:
+      - INDEXER_USERNAME=admin
+      - INDEXER_PASSWORD=SecretPassword
+      - WAZUH_API_URL=https://wazuh.manager
+      - DASHBOARD_USERNAME=kibanaserver
+      - DASHBOARD_PASSWORD=kibanaserver
+      - API_USERNAME=wazuh-api
+      - API_PASSWORD=Pickles123!
+    volumes:
+      - ./config/wazuh/wazuh/certs/wazuh.dashboard.pem:/usr/share/wazuh-dashboard/certs/wazuh-dashboard.pem:ro
+      - ./config/wazuh/wazuh/certs/wazuh.dashboard-key.pem:/usr/share/wazuh-dashboard/certs/wazuh-dashboard-key.pem:ro
+      - ./config/wazuh/wazuh/certs/root-ca.pem:/usr/share/wazuh-dashboard/certs/root-ca.pem:ro
+      - ./config/wazuh/dashboard/opensearch_dashboards.yml:/usr/share/wazuh-dashboard/config/opensearch_dashboards.yml
+      - ./config/wazuh/dashboard/wazuh.yml:/usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml
+      - ./data/wazuh/dashboard/config:/usr/share/wazuh-dashboard/data/wazuh/config
+      - ./data/wazuh/dashboard/custom:/usr/share/wazuh-dashboard/plugins/wazuh/public/assets/custom
+    depends_on:
+      - wazuh.indexer
+    links:
+      - wazuh.indexer:wazuh.indexer
+      - wazuh.manager:wazuh.manager
+    networks:
+      - nimbusguard_front
+      - nimbusguard_back
+      
+
+  # # ----------------------------------------------------------
+  # # CLOUDQUERY – reads from config/cloudquery/config.yml
+  # # ----------------------------------------------------------
+  # cloudquery:
+  #   image: ghcr.io/cloudquery/cloudquery:latest
+  #   container_name: cloudquery
+  #   restart: unless-stopped
+  #   working_dir: /config
+  #   command: ["sync", "/config/config.yml"]
+  #   environment:
+  #     CQ_NO_TELEMETRY: "true"
+  #   volumes:
+  #     - ./config/cloudquery/config.yml:/config/config.yml:ro
+  #     - ./data/cloudquery:/data
+  #     # adjust for Windows / Docker Desktop if needed:
+  #     - ~/.aws:/root/.aws:ro
+  #   networks:
+  #     - nimbusguard_back
+
+  # ----------------------------------------------------------
+  # PROMETHEUS
+  # ----------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: prometheus
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./data/prometheus:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - nimbusguard_back
+
+  # ----------------------------------------------------------
+  # GRAFANA – with provisioning
+  # ----------------------------------------------------------
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_INSTALL_PLUGINS: grafana-piechart-panel
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data/grafana:/var/lib/grafana
+      - ./config/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./config/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+    networks:
+      - nimbusguard_front
+      - nimbusguard_back
+
+  # ----------------------------------------------------------
+  # n8n – workflow / webhooks / glue
+  # ----------------------------------------------------------
+  n8n:
+    image: n8nio/n8n:1.70.3
+    container_name: n8n
+    restart: unless-stopped
+    environment:
+      N8N_HOST: n8n
+      N8N_PORT: 5678
+      N8N_BASIC_AUTH_ACTIVE: "false"
+    ports:
+      - "5678:5678"
+    volumes:
+      - ./data/n8n:/home/node/.n8n
+    networks:
+      - nimbusguard_front
+      - nimbusguard_back
+
+  # ----------------------------------------------------------
+  # PROWLER APP – from Docker Hub (to avoid your GHCR 403/denied)
+  # ----------------------------------------------------------
+  prowler-db:
+    image: postgres:16
+    container_name: prowler-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${PROWLER_DB:-prowler}
+      POSTGRES_USER: ${PROWLER_DB_USER:-prowler}
+      POSTGRES_PASSWORD: ${PROWLER_DB_PASSWORD:-changeme}
+    volumes:
+      - ./data/prowler/postgres:/var/lib/postgresql/data
+    networks:
+      - nimbusguard_back
+
+  prowler-cache:
+    image: valkey/valkey:7-alpine
+    container_name: prowler-cache
+    restart: unless-stopped
+    command: ["valkey-server", "--appendonly", "yes"]
+    volumes:
+      - ./data/prowler/cache:/data
+    networks:
+      - nimbusguard_back
+
+  prowler-api:
+    image: prowlercloud/prowler-api:latest
+    container_name: prowler-api
+    restart: unless-stopped
+    env_file:
+      - ./config/prowler/.env
+    depends_on:
+      - prowler-db
+      - prowler-cache
+    volumes:
+      - ./data/prowler/uploads:/app/uploads
+    networks:
+      - nimbusguard_back
+
+  prowler-worker:
+    image: prowlercloud/prowler-api:latest
+    container_name: prowler-worker
+    restart: unless-stopped
+    env_file:
+      - ./config/prowler/.env
+    depends_on:
+      - prowler-api
+      - prowler-db
+      - prowler-cache
+    command: ["celery", "-A", "app.celery", "worker", "-l", "INFO"]
+    networks:
+      - nimbusguard_back
+
+  prowler-scheduler:
+    image: prowlercloud/prowler-api:latest
+    container_name: prowler-scheduler
+    restart: unless-stopped
+    env_file:
+      - ./config/prowler/.env
+    depends_on:
+      - prowler-api
+      - prowler-db
+      - prowler-cache
+    command: ["celery", "-A", "app.celery", "beat", "-l", "INFO"]
+    networks:
+      - nimbusguard_back
+
+  prowler-ui:
+    image: prowlercloud/prowler-ui:latest
+    container_name: prowler-ui
+    restart: unless-stopped
+    env_file:
+      - ./config/prowler/.env
+    depends_on:
+      - prowler-api
+    ports:
+      - "8082:8080"
+    networks:
+      - nimbusguard_front
+      - nimbusguard_back
+
+  # ----------------------------------------------------------
+  # TRACECAT – local blob storage so no AWS creds needed
+  # ----------------------------------------------------------
+  # tracecat:
+  #   image: ghcr.io/tracecathq/tracecat:latest
+  #   container_name: tracecat
+  #   restart: unless-stopped
+  #   env_file:
+  #     - ./config/tracecat/tracecat.env
+  #   environment:
+  #     TRACECAT__BLOB_STORAGE_PROVIDER: "local"
+  #     TRACECAT__BLOB_STORAGE_LOCAL_PATH: "/var/lib/tracecat/blob"
+  #   volumes:
+  #     - ./data/tracecat:/var/lib/tracecat
+  #   ports:
+  #     - "8080:8080"
+  #   networks:
+  #     - nimbusguard_front
+  #     - nimbusguard_back
+
+  tracecat-caddy:
+    image: caddy:2.8.4-alpine
+    container_name: tracecat-caddy
+    restart: unless-stopped
+    networks:
+      - tracecat-core
+      - nimbusguard_front
+    ports:
+      - ${PUBLIC_APP_PORT}:${PUBLIC_APP_PORT}
+    environment:
+      - BASE_DOMAIN=${BASE_DOMAIN}
+      - ADDRESS=${ADDRESS}
+    volumes:
+      - ./config/tracecat/Caddyfile:/etc/caddy/Caddyfile
+
+  tracecat-api:
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.48.0}
+    container_name: tracecat-api
+    restart: unless-stopped
+    networks:
+      - tracecat-core
+      - tracecat-core-db
+      - nimbusguard_front
+    environment:
+      # App
+      LOG_LEVEL: ${TRACECAT_LOG_LEVEL}
+      TRACECAT__ALLOW_ORIGINS: ${TRACECAT__ALLOW_ORIGINS}
+      TRACECAT__API_ROOT_PATH: ${TRACECAT__API_ROOT_PATH}
+      TRACECAT__API_URL: ${TRACECAT__API_URL}
+      TRACECAT__APP_ENV: development
+      TRACECAT__AUTH_ALLOWED_DOMAINS: ${TRACECAT__AUTH_ALLOWED_DOMAINS}
+      TRACECAT__AUTH_MIN_PASSWORD_LENGTH: ${TRACECAT__AUTH_MIN_PASSWORD_LENGTH}
+      TRACECAT__AUTH_TYPES: ${TRACECAT__AUTH_TYPES}
+      TRACECAT__AUTH_SUPERADMIN_EMAIL: ${TRACECAT__AUTH_SUPERADMIN_EMAIL}
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY} # Sensitive
+      TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
+      TRACECAT__EXECUTOR_URL: ${INTERNAL_EXECUTOR_URL}
+      TRACECAT__PUBLIC_API_URL: ${TRACECAT__PUBLIC_API_URL}
+      TRACECAT__PUBLIC_APP_URL: ${TRACECAT__PUBLIC_APP_URL}
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
+      OAUTH_CLIENT_ID: ${OAUTH_CLIENT_ID}
+      OAUTH_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET}
+      USER_AUTH_SECRET: ${USER_AUTH_SECRET}
+      RUN_MIGRATIONS: "true"
+      TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
+      # SAML SSO
+      #SAML_IDP_METADATA_URL: ${SAML_IDP_METADATA_URL}
+      #SAML_ALLOW_UNSOLICITED: ${SAML_ALLOW_UNSOLICITED}
+      #SAML_ACCEPTED_TIME_DIFF: ${SAML_ACCEPTED_TIME_DIFF}
+      #SAML_AUTHN_REQUESTS_SIGNED: ${SAML_AUTHN_REQUESTS_SIGNED}
+      #SAML_SIGNED_ASSERTIONS: ${SAML_SIGNED_ASSERTIONS}
+      #SAML_SIGNED_RESPONSES: ${SAML_SIGNED_RESPONSES}
+      #SAML_VERIFY_SSL_ENTITY: ${SAML_VERIFY_SSL_ENTITY}
+      #SAML_VERIFY_SSL_METADATA: ${SAML_VERIFY_SSL_METADATA}
+      #SAML_CA_CERTS: ${SAML_CA_CERTS}
+      #SAML_METADATA_CERT: ${SAML_METADATA_CERT}
+      # Temporal
+      TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
+      TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
+      TEMPORAL__CLUSTER_NAMESPACE: ${TEMPORAL__CLUSTER_NAMESPACE}
+      TEMPORAL__TASK_TIMEOUT: ${TEMPORAL__TASK_TIMEOUT}
+      # Blob Storage (MinIO)
+      TRACECAT__BLOB_STORAGE_PROTOCOL: minio
+      TRACECAT__BLOB_STORAGE_ENDPOINT: http://tracecat-minio:9000
+      TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT: ${PUBLIC_APP_URL}/s3
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      # Local registry
+      TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
+      TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
+      # Redis
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_URL: ${REDIS_URL}
+    volumes:
+      - ./data/tracecat/local_registry:/app/local_registry
+    depends_on:
+      tracecat-temporal:
+        condition: service_healthy
+      tracecat-minio:
+        condition: service_healthy
+      tracecat-redis:
+        condition: service_healthy
+
+  tracecat-worker:
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.48.0}
+    restart: unless-stopped
+    networks:
+      - tracecat-core
+      - tracecat-core-db
+      - tracecat-temporal
+    environment:
+      LOG_LEVEL: ${TRACECAT_LOG_LEVEL}
+      TRACECAT__API_ROOT_PATH: ${TRACECAT__API_ROOT_PATH}
+      TRACECAT__API_URL: ${TRACECAT__API_URL}
+      TRACECAT__APP_ENV: development
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY} # Sensitive
+      TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
+      TRACECAT__PUBLIC_API_URL: ${TRACECAT__PUBLIC_API_URL}
+      TRACECAT__EXECUTOR_URL: ${INTERNAL_EXECUTOR_URL}
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
+      TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
+      # Temporal
+      TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
+      TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
+      TEMPORAL__CLUSTER_NAMESPACE: ${TEMPORAL__CLUSTER_NAMESPACE}
+      # Local registry
+      TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
+      TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
+      # Sentry
+      #SENTRY_DSN: ${SENTRY_DSN}
+    volumes:
+      - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
+    command: ["python", "-m", "tracecat.dsl.worker"]
+    depends_on:
+      - tracecat-api
+      - tracecat-temporal
+
+  tracecat-executor:
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.48.0}
+    restart: unless-stopped
+    networks:
+      - tracecat-core-db
+      - tracecat-temporal
+    # ports:
+    #   - 8265:8265
+    environment:
+      # Common
+      LOG_LEVEL: ${TRACECAT_LOG_LEVEL}
+      TRACECAT__APP_ENV: development
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY} # Sensitive
+      TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
+      TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
+      # Local registry
+      TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
+      TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
+      # Redis
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_URL: ${REDIS_URL}
+      # Langfuse
+      #LANGFUSE_HOST: ${LANGFUSE_HOST}
+      #LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+      #LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+    volumes:
+      - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
+    command:
+      [
+        "python",
+        "-m",
+        "uvicorn",
+        "tracecat.api.executor:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+      ]
+    depends_on:
+      - tracecat-temporal
+      - tracecat-redis
+
+  tracecat-ui:
+    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.48.0}
+    container_name: ui
+    restart: unless-stopped
+    networks:
+      - tracecat-core
+      - nimbusguard_front
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+      NEXT_PUBLIC_APP_ENV: development
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+      NEXT_PUBLIC_AUTH_TYPES: ${TRACECAT__AUTH_TYPES}
+      NEXT_SERVER_API_URL: ${NEXT_SERVER_API_URL}
+      NODE_ENV: development
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
+    depends_on:
+      - tracecat-api
+
+  tracecat-postgres_db:
+    image: postgres:16
+    container_name: tracecat-postgres_db
+    restart: unless-stopped
+    networks:
+      - tracecat-core-db
+    shm_size: 128mb
+    environment:
+      POSTGRES_USER: ${TRACECAT__POSTGRES_USER}
+      POSTGRES_PASSWORD: ${TRACECAT__POSTGRES_PASSWORD}
+    volumes:
+      - ./data/tracecat/postgres_db:/var/lib/postgresql/data
+
+  tracecat-temporal_postgres_db:
+    image: postgres:13
+    container_name: tracecat-temporal_postgres_db
+    restart: unless-stopped
+    networks:
+      - tracecat-temporal-db
+    environment:
+      POSTGRES_USER: ${TEMPORAL__POSTGRES_USER}
+      POSTGRES_PASSWORD: ${TEMPORAL__POSTGRES_PASSWORD} # Sensitive
+    volumes:
+      - ./data/tracecat/temporal-db:/var/lib/postgresql/data
+
+  tracecat-temporal:
+    image: temporalio/auto-setup:${TEMPORAL__VERSION:-1.27.1}
+    container_name: tracecat-temporal
+    restart: unless-stopped
+    networks:
+      - tracecat-core
+      - tracecat-temporal
+      - tracecat-temporal-db
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=${TEMPORAL__POSTGRES_USER}
+      - POSTGRES_PWD=${TEMPORAL__POSTGRES_PASSWORD} # Sensitive
+      - POSTGRES_SEEDS=tracecat-temporal_postgres_db
+      - LOG_LEVEL=warn
+      - BIND_ON_IP=0.0.0.0
+      - TEMPORAL_BROADCAST_ADDRESS=127.0.0.1
+    healthcheck:
+      test: ['CMD', 'tctl', '--address', '127.0.0.1:7233', 'cluster', 'health']
+      interval: 1s
+      timeout: 5s
+      start_period: 2s
+    depends_on:
+      - tracecat-temporal_postgres_db
+
+  tracecat-temporal_ui:
+    image: temporalio/ui:${TEMPORAL__UI_VERSION}
+    container_name: tracecat-temporal_ui
+    restart: unless-stopped
+    networks:
+      - tracecat-temporal
+      - tracecat-core
+    # ports:
+    #   - 8081:8080
+    environment:
+      - TEMPORAL_ADDRESS=tracecat-temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:8080
+    depends_on:
+      - tracecat-temporal
+
+  tracecat-minio:
+    image: minio/minio:RELEASE.2025-05-24T17-08-30Z
+    container_name: tracecat-minio
+    restart: unless-stopped
+    networks:
+      - tracecat-core
+    # ports:
+    #   - 9000:9000
+    #   - 9001:9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - ./data/tracecat/minio:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  tracecat-redis:
+    image: redis:7-alpine
+    container_name: tracecat-redis
+    restart: unless-stopped
+    networks:
+      - tracecat-core
+    # ports:
+    #   - 6379:6379
+    volumes:
+      - ./data/tracecat/redis:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+# ============================================================
+# NETWORKS
+# ============================================================
+networks:
+  nimbusguard_front:
+    driver: bridge
+  nimbusguard_back:
+    driver: bridge
+  tracecat-core:
+  tracecat-core-db:
+    internal: true
+  tracecat-temporal:
+  tracecat-temporal-db:
+    internal: true

@@ -1,45 +1,92 @@
-# Open-Source Cloud Detection & Response Stack
+# ☁️🛡️ NimbusGuard  
 
-A full open-source Cloud Detection and Response (CDR) lab stack — built with modular containers for detection, visibility, metrics, and automated response.
+![NinmbusGuard Banner](./assets/nimbus_cloud_banner.png)
 
-This environment is designed to demonstrate and experiment with modern cloud detection and response concepts using entirely free tools.
-It’s ideal for security engineers, cloud defenders, and educators who want to test and visualize detection → response workflows.
+[![Docker Compose](https://img.shields.io/badge/Docker-Compose-ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![Status](https://img.shields.io/badge/Status-Stable-brightgreen.svg)
+![Maintained](https://img.shields.io/badge/Maintained-Yes-blue.svg)
+![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)
+
+> A modular, open-source CDR stack for modern SecOps.
 
 ## Overview
 
-This Docker Compose deployment brings together:
+NimbusGuard is an open-source **Cloud Detection and Response (CDR)** platform that unifies cloud visibility, compliance, and automated response.
+
+It brings together best-in-class open tools — **Wazuh**, **Prowler**, **Prometheus**, **Grafana**, **Tracecat**, and **n8n** — into one integrated, extensible stack.
+
+With NimbusGuard, you can:
+
+- Detect misconfigurations and threats across cloud workloads
+- Visualize posture and trends with Grafana dashboards
+- Automate responses with Tracecat and n8n
+- Continuously improve detection and remediation across your environment
+
+A full open-source Cloud Detection and Response (CDR) lab stack — built with modular containers for detection, visibility, metrics, and automated response.
+
+This environment is designed to demonstrate and experiment with modern cloud detection and response concepts using entirely free tools. It’s ideal for security engineers, cloud defenders, and educators who want to test and visualize detection → response workflows.
+
+**DISCLAIMER** This is not meant for production environments.
+
+## Included Components
+
+| Category | Component | Purpose | URL / Port | Default Auth |
+|-----------|------------|----------|-------------|---------------|
+| **Detection** | **Wazuh** | SIEM, log analysis, agent management | [http://localhost:5601](http://localhost:5601) | `admin / admin` |
+| **Compliance** | **Prowler App** | CSPM, threat checks, compliance reports | [http://localhost:8082](http://localhost:8082) | Defined in `config/prowler/.env` |
+| **Automation** | **Tracecat** | Cloud response workflows (SOAR-like engine) | [http://localhost:8080](http://localhost:8080) | No auth by default |
+| **Orchestration** | **n8n** | Low-code workflow builder (Slack, AWS, etc.) | [http://localhost:5678](http://localhost:5678) | No auth by default |
+| **Metrics** | **Prometheus** | Metrics collector | [http://localhost:9090](http://localhost:9090) | None |
+| **Dashboards** | **Grafana** | Visualization of all metrics and findings | [http://localhost:3000](http://localhost:3000) | `admin / admin` |
 
 | Component                                              | Role                                | Highlights                                                       |
 | ------------------------------------------------------ | ----------------------------------- | ---------------------------------------------------------------- |
 | **[Wazuh](https://wazuh.com)**                         | SIEM / XDR / Cloud & host detection | Cloud workload protection, log analysis, alerts, dashboards      |
-| **[CloudQuery](https://cloudquery.io)**                | Cloud asset inventory & posture     | Syncs cloud configs to discover misconfigurations and drift      |
 | **[Prowler](https://prowler.pro)**                     | Cloud compliance scanner            | AWS/Azure/GCP security benchmark auditing (CIS, GDPR, PCI, etc.) |
 | **[Prometheus](https://prometheus.io)**                | Metrics collector                   | Gathers performance and security metrics                         |
 | **[Grafana](https://grafana.com)**                     | Visualization dashboard             | Unified visualization for Wazuh, CloudQuery, and Prometheus      |
 | **[Tracecat](https://github.com/TracecatHQ/tracecat)** | Cloud SOAR / automation             | Security workflow orchestration and automated response engine    |
 | **[n8n](https://n8n.io)**                              | General automation / integrations   | Connects alerts to Slack, Jira, ServiceNow, and more             |
 
+### Folder Structure
+
+| Directory              | Purpose                                                                                                 |
+| ---------------------- | ------------------------------------------------------------------------------------------------------- |
+| **config/**            | Contains configuration files for each service. These are mounted into containers read-only (`:ro`).     |
+| **data/**              | Persistent volumes mapped to Docker services for storage. Each subdirectory matches the container name. |
+| **scripts/**           | Utility scripts — e.g., installing Docker, running backups, or health checks.                           |
+| **.env**               | Environment variables like AWS credentials, Grafana passwords, API keys, etc.                           |
+| **docker-compose.yml** | Main Compose definition — defines services, networks, and volumes.                                      |
+
+## Quickstart
+
+```bash
+docker compose -f .\docker-compose-wazuh-certs.yml up
+docker compose up
+```
+
 ## Architecture
 
 ```bash
                 ┌──────────────────────────────┐
-                │        Cloud Accounts         │
-                │ (AWS / Azure / GCP / etc.)    │
+                │        Cloud Accounts        │
+                │ (AWS / Azure / GCP / etc.)   │
                 └──────────────┬───────────────┘
                                │
        ┌───────────────────────────────────────────────┐
        │               Detection Layer                 │
-       │  Wazuh  ←→  CloudQuery  ←→  Prowler           │
+       │              Wazuh  ←→  Prowler               │
        └───────────────────────────────────────────────┘
                                │
        ┌───────────────────────────────────────────────┐
-       │         Metrics & Visualization Layer          │
-       │  Prometheus  ←→  Grafana                       │
+       │         Metrics & Visualization Layer         │
+       │             Prometheus  ←→  Grafana           │
        └───────────────────────────────────────────────┘
                                │
        ┌───────────────────────────────────────────────┐
-       │         Response / Automation Layer            │
-       │  Tracecat  ←→  n8n (notifications, tickets)    │
+       │         Response / Automation Layer           │
+       │  Tracecat  ←→  n8n (notifications, tickets)   │
        └───────────────────────────────────────────────┘
 ```
 
@@ -72,6 +119,7 @@ This Docker Compose deployment brings together:
 ### Software Requirements
 
 Before running the stack, ensure your system meets the following software prerequisites.
+
 | Software                  | Minimum Version                         | Purpose                                                   |
 | ------------------------- | --------------------------------------- | --------------------------------------------------------- |
 | **Docker Engine**         | `24.0` or later                         | Container runtime for all services                        |
@@ -104,67 +152,20 @@ If you get errors like “docker-compose: command not found”, install the new 
 | CloudQuery      | Asset inventory    | N/A (CLI)     |
 | Prowler         | Compliance scanner | N/A (CLI)     |
 
-## Getting Started
+## Deployment Summary
 
-1. Clone the repository
-
-    ```bash
-    git clone https://github.com/<your-username>/open-source-cdr-stack.git
-    cd open-source-cdr-stack
-    ```
-
-2. Configure environment variables
-
-    Copy .env.example to .env and fill in your cloud credentials:
-
-    ```bash
-    AWS_ACCESS_KEY_ID=YOUR_KEY
-    AWS_SECRET_ACCESS_KEY=YOUR_SECRET
-    AWS_DEFAULT_REGION=us-east-1
-    TRACECAT_API_KEY=changeme
-    ```
-
-    > ⚠️ Use read-only IAM credentials or sandbox accounts for lab use.
-
-    The ```TRACECAT_API_KEY``` is something you provide. You can use the following to create your own api key:
-
-    ```bash
-    openssl rand -hex 32
-    ```
-
-    When Tracecat starts, it will use this token as the API auth secret. It is an authentication token used by Tracecat’s API service layer for things such as: Trigger workflows, Query case data,Submit alerts, or Run integrations.
-
-3. Adjust configurations (optional)
-
-    | Directory                     | Purpose                             |
-    | ----------------------------- | ----------------------------------- |
-    | `wazuh/config/`               | Wazuh manager configuration         |
-    | `cloudquery/config/`          | Define which cloud services to sync |
-    | `prometheus/prometheus.yml`   | Metrics scrape targets              |
-    | `grafana/provisioning/`       | Dashboards & data sources           |
-    | `prowler/output/`             | Compliance scan results             |
-    | `tracecat_data/`, `n8n_data/` | Persistent workflow data            |
-
-4. Launch the stack
-
-    ```bash
-    docker-compose up -d
-    ```
-
-    Check logs:
-
-    ```bash
-    docker-compose logs -f wazuh-manager
-    ```
-
-5. Access Web UIs
-
-| Tool                | URL                                            | Credentials                 |
-| ------------------- | ---------------------------------------------- | --------------------------- |
-| **Wazuh Dashboard** | [http://localhost:5601](http://localhost:5601) | admin / admin (default)     |
-| **Grafana**         | [http://localhost:3000](http://localhost:3000) | admin / admin               |
-| **Tracecat**        | [http://localhost:8080](http://localhost:8080) | configure API key in `.env` |
-| **n8n**             | [http://localhost:5678](http://localhost:5678) | admin / admin               |
+| Component                          | Purpose                                                          | TLS        | Auth                            | Access / URL                        | Default Login / Notes                   |
+| ---------------------------------- | ---------------------------------------------------------------- | ---------- | ------------------------------- | ----------------------------------- | --------------------------------------- |
+| **Wazuh Indexer (OpenSearch)**     | Stores & indexes all alerts, audit logs, and detections          | ❌ Disabled | ✅ Yes (admin user)              | `http://wazuh-indexer:9200`         | `admin / SecretPassword`                |
+| **Wazuh Manager**                  | Correlates events, sends alerts, connects to Indexer             | ❌ Disabled | ✅ Yes (internal API)            | `http://wazuh-manager:55000`        | `wazuh-wui / SecretPassword`            |
+| **Wazuh Dashboard**                | Web UI for Wazuh; visualize detections & rules                   | ❌ Disabled | ✅ Yes (via Indexer)             | `http://localhost:5601`             | `admin / SecretPassword`                |
+| **Tracecat**                       | SOAR-like automation engine (detection → response orchestration) | ❌ Disabled | ✅ Yes (local UI login or OAuth) | `http://localhost:8080`             | Default: create user on first login     |
+| **CloudQuery**                     | Cloud inventory and compliance data collector (AWS/Azure/GCP)    | ❌ Disabled | ❌ No                            | CLI only (`docker exec cloudquery`) | Config via `/config/config.yml`         |
+| **Prowler**                        | Cloud security and compliance scanner                            | ❌ Disabled | ❌ No                            | CLI only (`docker exec prowler`)    | Outputs reports to `/reports/`          |
+| **Prometheus**                     | Metrics and system telemetry collection                          | ❌ Disabled | ❌ No                            | `http://localhost:9090`             | Open endpoint, internal use             |
+| **Grafana**                        | Dashboards for Wazuh, Tracecat, Prowler, etc.                    | ❌ Disabled | ✅ Yes                           | `http://localhost:3000`             | `admin / admin` (change at first login) |
+| **Temporal (Tracecat Backend)**    | Orchestrates workflows for Tracecat                              | ❌ Disabled | ❌ No                            | Internal only (`temporal:7233`)     | No external login                       |
+| **Docker Network (`cdr_backend`)** | Internal bridge connecting all services                          | N/A        | N/A                             | Not user-accessible                 | Isolated, no inbound routes             |
 
 ## Whats Next
 
@@ -195,19 +196,6 @@ If you get errors like “docker-compose: command not found”, install the new 
 
 To automate deployment of dashboards, ensure they are codified and placed in: ```src/grafana/provisioning/dashboards/```
 
-## Persistence and Volumes
-
-Persistent volumes are defined for:
-
-* wazuh_data
-* wazuh_indexer_data
-* prometheus_data
-* grafana_data
-* tracecat_data
-* n8n_data
-
-Back up these volumes if you rebuild the stack.
-
 ## Updating Components
 
 ```bash
@@ -215,19 +203,11 @@ docker-compose pull
 docker-compose up -d
 ```
 
-## Security Notes
-
-* Avoid using production credentials in lab deployments.
-* Rotate API keys periodically.
-* Bind services to 127.0.0.1 or use Docker network isolation if deployed on a public host.
-* Use HTTPS reverse proxy (e.g., Traefik or Nginx) for production exposure.
-
 ## License
 
 This project aggregates open-source tools, each under its own license:
 
 * Wazuh: GPL-v2
-* CloudQuery: MPL-2.0
 * Prowler: Apache-2.0
 * Prometheus / Grafana: Apache-2.0
 * Tracecat: AGPL-3.0
@@ -247,3 +227,6 @@ Besides the [whats next](#whats-next) section:
 * Tracecat or n8n workflow templates
 * Additional exporters (e.g., node_exporter)
 * Scripts for auto-updating cloud queries or scans
+* Adding threat intel
+* Add [cloudsploit](https://github.com/aquasecurity/cloudsploit#self-hosted)
+* Potentially add [gapps](https://github.com/bmarsh9/gapps)

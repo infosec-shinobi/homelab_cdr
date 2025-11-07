@@ -1,0 +1,57 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+  # Optional: external labels help if you federate or send metrics elsewhere later
+  external_labels:
+    environment: nimbusguard-lab
+
+scrape_configs:
+  # --------------------------------------------------------------------------
+  # Prometheus itself
+  # --------------------------------------------------------------------------
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["prometheus:9090"]
+
+  # --------------------------------------------------------------------------
+  # Wazuh (metrics exposed via manager and indexer endpoints)
+  # --------------------------------------------------------------------------
+  - job_name: "wazuh-manager"
+    static_configs:
+      - targets: ["wazuh-manager:55000"]
+
+  - job_name: "wazuh-indexer"
+    static_configs:
+      - targets: ["wazuh-indexer:9200"]
+
+  # --------------------------------------------------------------------------
+  # Tracecat — exposes /metrics by default
+  # --------------------------------------------------------------------------
+  - job_name: "tracecat"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["tracecat:8080"]
+
+  # --------------------------------------------------------------------------
+  # n8n — requires enabling Prometheus metrics in n8n (see below)
+  # --------------------------------------------------------------------------
+  - job_name: "n8n"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["n8n:5678"]
+
+  # --------------------------------------------------------------------------
+  # Grafana — exposes internal metrics at /metrics
+  # --------------------------------------------------------------------------
+  - job_name: "grafana"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["grafana:3000"]
+
+  # --------------------------------------------------------------------------
+  # Optional: Docker container metrics (if you add cAdvisor)
+  # --------------------------------------------------------------------------
+  # - job_name: "cadvisor"
+  #   static_configs:
+  #     - targets: ["cadvisor:8080"]

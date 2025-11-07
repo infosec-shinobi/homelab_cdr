@@ -18,7 +18,6 @@ lib/
 lib64/
 parts/
 sdist/
-var/
 wheels/
 share/python-wheels/
 *.egg-info/
@@ -205,3 +204,32 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Ignore Wazuh generated certificates and logs
+nimbus_cloud/config/wazuh/certs/*
+
+# Ignore data dirs
+nimbus_cloud/data/cloudquery/*
+nimbus_cloud/data/grafana/*
+nimbus_cloud/data/n8n/*
+nimbus_cloud/data/prometheus/*
+nimbus_cloud/data/prowler/postgres/*
+nimbus_cloud/data/prowler/cache/*
+nimbus_cloud/data/prowler/uploads/*
+nimbus_cloud/data/tracecat/local_registry/*
+nimbus_cloud/data/tracecat/postgres_db/*
+nimbus_cloud/data/tracecat/temporal-db/*
+nimbus_cloud/data/tracecat/minio/*
+nimbus_cloud/data/tracecat/redis/*
+nimbus_cloud/data/wazuh/indexer/*
+nimbus_cloud/data/wazuh/manager/ossec/*
+nimbus_cloud/data/wazuh/manager/filebeat/etc/*
+nimbus_cloud/data/wazuh/manager/filebeat/var/*
+nimbus_cloud/data/wazuh/dashboard/config/*
+nimbus_cloud/data/wazuh/dashboard/custom/*
+
+# Keep placeholder files so that empty directories are tracked
+!.gitkeep
+!nimbus_cloud/data/wazuh/manager/filebeat/var/.gitkeep
+!nimbus_cloud/config/prowler/.env
+!nimbus_cloud/.env
