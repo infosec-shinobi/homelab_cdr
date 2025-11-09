@@ -1,6 +1,6 @@
 # ☁️🛡️ NimbusGuard  
 
-![NinmbusGuard Banner](./assets/nimbus_cloud_banner.png)
+![NinmbusGuard Banner](./assets/nimbus_guard_banner.png)
 
 [![Docker Compose](https://img.shields.io/badge/Docker-Compose-ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -230,3 +230,12 @@ Besides the [whats next](#whats-next) section:
 * Adding threat intel
 * Add [cloudsploit](https://github.com/aquasecurity/cloudsploit#self-hosted)
 * Potentially add [gapps](https://github.com/bmarsh9/gapps)
+
+## Queen City Con
+
+I presented on CDR at [Queen City Con](https://queencitycon.org/)(QCC) 2025. Resources from that talk:
+
+* [Slides](./assets/Beyond_Detection_Cloud_Response_Presentation.pdf)
+* [Presentation](https://youtu.be/_tYdKv9RpOg)
+* [QFD](./assets/cdr_qfd.xlsx)
+* [Nimbus Guard](./nimbus_guard/)
