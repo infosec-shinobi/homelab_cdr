@@ -52,7 +52,7 @@ services:
   #https://documentation.wazuh.com/current/deployment-options/docker/wazuh-container.html#single-node-stack
 
   wazuh.indexer:
-    image: wazuh/wazuh-indexer:4.13.0
+    image: wazuh/wazuh-indexer:4.14.0
     container_name: wazuh.indexer
     restart: unless-stopped
     user: "1000:1000"
@@ -60,9 +60,12 @@ services:
       - "9200:9200"
     environment:
       - "OPENSEARCH_JAVA_OPTS=-Xms1g -Xmx1g"
-      - "DISABLE_INSTALL_DEMO_CONFIG=true"
-      - "DISABLE_SECURITY_PLUGIN=true"
-      - "OPENSEARCH_PATH_CONF=/usr/share/wazuh-indexer/config"
+      #- "OPENSEARCH_JAVA_OPTS=-Xms1g -Xmx1g -Djava.security.policy==/usr/share/wazuh-indexer/config/opensearch-security.policy"
+      #- "OPENSEARCH_JAVA_OPTS=-Xms1g -Xmx1g -Djava.security.policy==/usr/share/wazuh-indexer/config/opensearch-security.policy -Djava.security.manager=allow -Dopensearch.allow_unsafe_democertificates=true -Dopensearch.allow_default_init_securityindex=true"
+      #- "DISABLE_INSTALL_DEMO_CONFIG=true"
+      #- "DISABLE_SECURITY_PLUGIN=false"
+      #- "OPENSEARCH_PATH_CONF=/usr/share/wazuh-indexer/config"
+    #entrypoint: ["/usr/local/bin/docker-entrypoint.sh"]
     ulimits:
       memlock:
         soft: -1
@@ -72,19 +75,20 @@ services:
         hard: 65536
     volumes:
       - ./data/wazuh/indexer:/var/lib/wazuh-indexer
-      #- ./config/wazuh/certs/wazuh.indexer.pem:/usr/share/wazuh-indexer/certs/wazuh.indexer.pem:ro
-      #- ./config/wazuh/certs/wazuh.indexer.key:/usr/share/wazuh-indexer/certs/wazuh.indexer.key:ro
-      #- ./config/wazuh/certs/root-ca.pem:/usr/share/wazuh-indexer/certs/root-ca.pem:ro
-      - ./config/wazuh/certs/wazuh.indexer.pem:/usr/share/wazuh-indexer/config/certs/wazuh.indexer.pem:ro
-      - ./config/wazuh/certs/wazuh.indexer.key:/usr/share/wazuh-indexer/config/certs/wazuh.indexer.key:ro
-      - ./config/wazuh/certs/root-ca.pem:/usr/share/wazuh-indexer/config/certs/root-ca.pem:ro
-      - ./config/wazuh/indexer/wazuh.indexer.yml:/usr/share/wazuh-indexer/config/opensearch.yml:ro
-      - ./config/wazuh/indexer/internal_users.yml:/usr/share/wazuh-indexer/config/opensearch-security/internal_users.yml:ro
+      #- ./data/wazuh/indexer_logs:/var/log/wazuh-indexer
+      - ./config/wazuh/certs/root-ca.pem:/usr/share/wazuh-indexer/config/certs/root-ca.pem
+      - ./config/wazuh/certs/wazuh.indexer-key.pem:/usr/share/wazuh-indexer/config/certs/wazuh.indexer.key
+      - ./config/wazuh/certs/wazuh.indexer.pem:/usr/share/wazuh-indexer/config/certs/wazuh.indexer.pem
+      - ./config/wazuh/certs/admin.pem:/usr/share/wazuh-indexer/config/certs/admin.pem
+      - ./config/wazuh/certs/admin-key.pem:/usr/share/wazuh-indexer/config/certs/admin-key.pem
+      - ./config/wazuh/indexer/wazuh.indexer.yml:/usr/share/wazuh-indexer/config/opensearch.yml
+      - ./config/wazuh/indexer/internal_users.yml:/usr/share/wazuh-indexer/config/opensearch-security/internal_users.yml
+      - ./config/wazuh/indexer/docker-entrypoint.sh:/usr/local/bin/docker-entrypoint.sh
     networks:
       - nimbusguard_back
 
   wazuh.manager:
-    image: wazuh/wazuh-manager:4.13.0
+    image: wazuh/wazuh-manager:4.14.0
     hostname: wazuh.manager
     restart: always
     ulimits:
@@ -110,25 +114,26 @@ services:
       - API_USERNAME=wazuh-api
       - API_PASSWORD=Pickles123!
     volumes:
-      #- ./data/wazuh/manager/ossec:/var/ossec/
-      #- wazuh_api_configuration:/var/ossec/api/configuration
-      #- wazuh_etc:/var/ossec/etc
-      #- wazuh_logs:/var/ossec/logs
-      #- wazuh_queue:/var/ossec/queue
-      #- wazuh_var_multigroups:/var/ossec/var/multigroups
-      #- wazuh_active_response:/var/ossec/active-response/bin
-      #- wazuh_wodles:/var/ossec/wodles
-      #- ./data/wazuh/manager/filebeat/etc:/etc/filebeat
-      #- ./data/wazuh/manager/filebeat/var:/var/lib/filebeat
-      - ./config/wazuh/wazuh/certs/root-ca.pem:/etc/ssl/root-ca.pem
-      - ./config/wazuh/wazuh/certs/wazuh.manager.pem:/etc/ssl/filebeat.pem
-      - ./config/wazuh/wazuh/certs/wazuh.manager-key.pem:/etc/ssl/filebeat.key
+      - wazuh_api_configuration:/var/ossec/api/configuration
+      - wazuh_etc:/var/ossec/etc
+      - wazuh_logs:/var/ossec/logs
+      - wazuh_queue:/var/ossec/queue
+      - wazuh_var_multigroups:/var/ossec/var/multigroups
+      - wazuh_integrations:/var/ossec/integrations
+      - wazuh_active_response:/var/ossec/active-response/bin
+      - wazuh_agentless:/var/ossec/agentless
+      - wazuh_wodles:/var/ossec/wodles
+      - filebeat_etc:/etc/filebeat
+      - filebeat_var:/var/lib/filebeat
+      - ./config/wazuh/certs/root-ca-manager.pem:/etc/ssl/root-ca.pem
+      - ./config/wazuh/certs/wazuh.manager.pem:/etc/ssl/filebeat.pem
+      - ./config/wazuh/certs/wazuh.manager-key.pem:/etc/ssl/filebeat.key
       - ./config/wazuh/manager/manager.conf:/wazuh-config-mount/etc/ossec.conf
     networks:
       - nimbusguard_back
 
   wazuh.dashboard:
-    image: wazuh/wazuh-dashboard:4.13.0
+    image: wazuh/wazuh-dashboard:4.14.0
     hostname: wazuh.dashboard
     restart: always
     ports:
@@ -142,9 +147,9 @@ services:
       - API_USERNAME=wazuh-api
       - API_PASSWORD=Pickles123!
     volumes:
-      - ./config/wazuh/wazuh/certs/wazuh.dashboard.pem:/usr/share/wazuh-dashboard/certs/wazuh-dashboard.pem:ro
-      - ./config/wazuh/wazuh/certs/wazuh.dashboard-key.pem:/usr/share/wazuh-dashboard/certs/wazuh-dashboard-key.pem:ro
-      - ./config/wazuh/wazuh/certs/root-ca.pem:/usr/share/wazuh-dashboard/certs/root-ca.pem:ro
+      - ./config/wazuh/certs/wazuh.dashboard.pem:/usr/share/wazuh-dashboard/certs/wazuh-dashboard.pem
+      - ./config/wazuh/certs/wazuh.dashboard-key.pem:/usr/share/wazuh-dashboard/certs/wazuh-dashboard-key.pem
+      - ./config/wazuh/certs/root-ca.pem:/usr/share/wazuh-dashboard/certs/root-ca.pem
       - ./config/wazuh/dashboard/opensearch_dashboards.yml:/usr/share/wazuh-dashboard/config/opensearch_dashboards.yml
       - ./config/wazuh/dashboard/wazuh.yml:/usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml
       - ./data/wazuh/dashboard/config:/usr/share/wazuh-dashboard/data/wazuh/config
@@ -641,3 +646,20 @@ networks:
   tracecat-temporal:
   tracecat-temporal-db:
     internal: true
+
+# ============================================================
+# Volumes
+# ============================================================
+
+volumes:
+  wazuh_api_configuration:
+  wazuh_etc:
+  wazuh_logs:
+  wazuh_queue:
+  wazuh_var_multigroups:
+  wazuh_integrations:
+  wazuh_active_response:
+  wazuh_agentless:
+  wazuh_wodles:
+  filebeat_etc:
+  filebeat_var:

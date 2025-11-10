@@ -62,7 +62,15 @@ This environment is designed to demonstrate and experiment with modern cloud det
 ## Quickstart
 
 ```bash
+#Run the following python command to generate a password for tracecat db
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+#Update this var in .env with that password: TRACECAT__DB_ENCRYPTION_KEY=
+
+#Generate certs for wazuh
 docker compose -f .\docker-compose-wazuh-certs.yml up
+
+#bring the stack up
 docker compose up
 ```
 
