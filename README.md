@@ -62,6 +62,11 @@ This environment is designed to demonstrate and experiment with modern cloud det
 ## Quickstart
 
 ```bash
+#copy .env_example to .env
+cp .env_example .env
+
+#Make any updates you want to .env
+
 #Run the following python command to generate a password for tracecat db
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 

@@ -232,4 +232,6 @@ nimbus_cloud/data/wazuh/dashboard/custom/*
 !.gitkeep
 !nimbus_cloud/data/wazuh/manager/filebeat/var/.gitkeep
 !nimbus_cloud/config/prowler/.env
-!nimbus_cloud/.env
+
+#Stop tracking .env file
+#!nimbus_cloud/.env
